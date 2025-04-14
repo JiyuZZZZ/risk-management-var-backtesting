@@ -70,10 +70,15 @@ This project also tests using **capital C directly as VaR**:
 
 - `Risk_Management_VaR_Analysis.Rmd` – R Markdown code with full analysis
 - `sample_returns.csv` – Simulated daily log returns for 4 hypothetical assets
-- (optional) `report_summary.pdf` – Report with figures and commentary
 
 ---
 
+## 📁 Sample Data
+
+The file `sample_returns.csv` contains **simulated daily log-returns** for four hypothetical assets over 600 trading days.  
+It is generated solely for demonstration purposes and does **not** reflect real financial market data.
+
+---
 ## 🧬 Technologies Used
 
 - R, tidyverse, MASS, GAS, stats
