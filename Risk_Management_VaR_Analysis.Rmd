@@ -1,0 +1,293 @@
+---
+title: "Risk Management Project – VaR, ES and Backtesting"
+author: "Jiyu Zhang"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# 📌 Introduction
+
+This R Markdown document replicates the analysis from my MSc Risk Management coursework.  
+The goal is to estimate minimum capital requirements using different VaR methodologies  
+and validate the results through backtesting and normality tests.
+
+```{r}
+library(MASS)
+# Part(i)
+# Load the data.
+lambda = c(91, 83, 113, 23)
+prices = read.csv("/Users/jiyuzhang/Desktop/Leeds\ Master/semester_2/Risk\ management/coursework/Data_Student_201777211.csv", header = TRUE, sep = " ")
+alpha = 0.99
+
+# Calculate the log-returns.
+N = length(prices[,1])
+risk_factors = matrix(0, nrow = N-1, ncol = 4)
+for (i in 1:N-1){
+  risk_factors[i, 1] = log(prices[i+1, 2] / prices[i, 2])
+  risk_factors[i, 2] = log(prices[i+1, 3] / prices[i, 3])
+  risk_factors[i, 3] = log(prices[i+1, 4] / prices[i, 4])
+  risk_factors[i, 4] = log(prices[i+1, 5] / prices[i, 5])
+}
+
+# Set the last prices in the dataset as today's prices.
+S = c(prices[N,2], prices[N,3], prices[N,4], prices[N,5])
+
+
+P = c(prices[,2], prices[,3], prices[,4], prices[,5])
+M = matrix(P, ncol=4, nrow=N)
+
+# Calculate the portfolio values.
+portfolio_values = matrix(0, ncol = 4, nrow=N)
+for (i in 1:N){
+  portfolio_values[i, 1] = M[i, 1] * lambda[1]
+  portfolio_values[i, 2] = M[i, 2] * lambda[2]
+  portfolio_values[i, 3] = M[i, 3] * lambda[3]
+  portfolio_values[i, 4] = M[i, 4] * lambda[4]
+}
+
+# Calculate the means, variances and covariances.
+mu = colMeans(risk_factors)
+sigma = cov(risk_factors)
+
+means = -(portfolio_values[N,] %*% mu)
+variances = portfolio_values[N,] %*% sigma %*% matrix(portfolio_values[N,])
+
+# VaR_alpha
+VaR_var = means + sqrt(variances) * qnorm(alpha)
+# ES_alpha
+ES_var = means + sqrt(variances) * dnorm(qnorm(alpha))/(1-alpha)
+# Capital requirement.
+C_var = 2.5 * VaR_var
+
+cat("Variance-covariance method:", "\nVaR(L) =", VaR_var, "\nES(L) =", ES_var, "\nC =", C_var)
+
+
+# Part(ii)
+# Calculate the exact portfolio losses.
+portfolio_losses = rep(0, N-1)
+for (i in 1:(N-1)){
+  portfolio_losses[i] = as.vector(- (exp(risk_factors[i,]) - 1 ) %*% (lambda * M[i,]))
+}
+
+# Compute VaR and ES from portfolio_losses
+portfolio_losses_ordered = sort(portfolio_losses)
+
+# Set the index.
+idx = ceiling (alpha * length(portfolio_losses_ordered))
+
+# Choose the VaR.
+VaR_his = portfolio_losses_ordered[idx]
+C_his = 2.5 * VaR_his
+ES_his = mean (portfolio_losses_ordered[idx:length(portfolio_losses_ordered)])
+
+cat ("Historical method:", "\nVaR(L) =", VaR_his, "\nES(L) =", ES_his, '\nC =', C_his)
+
+
+# Part(iii)
+# Here we calculate the VaR for each past 500 days(499 risk factors).
+# Calculate the VaR, ES and C using variance-covariance method.
+VaR_var_all = rep(0, N-499)
+ES_var_all = rep(0, N-499)
+C_his_all = rep(0, N-499)
+for (i in 499:(N-1)){
+  mu = colMeans(risk_factors[(i-498):i, ])
+  sigma = var(risk_factors[(i-498):i, ])
+  
+  means = -(portfolio_values[i,] %*% mu)
+  variances = portfolio_values[i,] %*% sigma %*% matrix(portfolio_values[i,])
+  
+  # VaR_alpha
+  VaR_var_all[i-498] = means + sqrt(variances) * qnorm(alpha)
+  # ES_alpha
+  ES_var_all[i-498] = means + sqrt(variances) * dnorm(qnorm(alpha))/(1-alpha)
+}
+C_var_all = 2.5 * VaR_var_all
+
+# Calculate the VaR and ES using historical method.
+VaR_his_all = rep(0, N-499)
+ES_his_all = rep(0, N-499)
+for (i in 499:(N-1)){
+  # Compute VaR and ES from portfolio_losses
+  portfolio_losses_ordered = sort(portfolio_losses[(i-498):i])
+  idx = ceiling (alpha * length(portfolio_losses_ordered))
+  
+  VaR_his_all[i-498] = portfolio_losses_ordered[idx]
+  C_his_all[i-498] = 2.5 * VaR_his_all[i-498]
+  ES_his_all[i-498] = mean (portfolio_losses_ordered[idx:length(portfolio_losses_ordered)])
+}
+
+# Standard Coverage Test
+epsilon = 0.05
+alpha_1 = N-500 # alpha+1
+q = 0.01
+exceedances_var = sum(portfolio_losses[500:(N-1)] > as.vector(VaR_var_all[1:(N-500)]))
+print(exceedances_var)
+
+exceedances_his = sum(portfolio_losses[500:(N-1)] > as.vector(VaR_his_all[1:(N-500)]))
+print(exceedances_his)
+
+# Try different values of confidence interval.
+a = 1
+b = 17
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#<0.05
+print(pa)#<0.025
+print(pb)#<0.025
+
+a = 2
+b = 16
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#<0.05
+print(pa)#<0.025
+print(pb)#<0.025
+
+a = 3
+b = 15
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#>0.05
+print(pa)#>0.025
+print(pb)#<0.025
+
+a = 2
+b = 14
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#<0.05
+print(pa)#<0.025
+print(pb)#<0.025
+
+a = 2
+b = 13
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#<0.05
+print(pa)#<0.025
+print(pb)#<0.025
+
+a = 2
+b = 12
+pa = pbinom(a, alpha_1, q)
+pb = 1-pbinom(b, alpha_1, q)
+print(pa+pb)#>0.05
+print(pa)#<0.025
+print(pb)#>0.025
+
+cat ("The exceedances number of VaR computed by variance-covariance method is", exceedances_var,
+     "\nThe exceedances number of VaR computed by historical method is", exceedances_his,
+     "\nThe non-rejection interval is from", 2, "to", 13)
+
+# Kupiec’s PF Coverage Test
+# Calculate the quantiles of chi-squared distribution.
+epsilon = 0.05
+q = alpha
+df = 1
+
+quantile_3 = qchisq(1-epsilon, df = 1, ncp = 0, lower.tail = TRUE) # quantile_3 = 3.841459
+
+f = function(x_1) 2 * log(((alpha_1-x_1)/(q*alpha_1))^(alpha_1-x_1) * (x_1/((1-q)*alpha_1))^x_1) - quantile_3
+
+# Plot to show the interval of solution.
+x = seq(1, 30, by=1)
+y = 2 * log(((alpha_1-x)/(q*alpha_1))^(alpha_1-x) * (x/((1-q)*alpha_1))^x)
+plot(x, y , type = 'l')
+abline(h=quantile_3)
+
+solution_1 = uniroot(f, interval = c(1, 10))
+solution_2 = uniroot(f, interval = c(10, 20))
+
+x1 = solution_1$root
+x2 = solution_2$root
+
+cat ( "The non-rejection interval is from", floor(x1), "to", floor(x2+1))
+
+# Use packege to test the exceedance numbers.
+library(GAS)
+packege_test_var = BacktestVaR(portfolio_losses[501:N-1], VaR_var_all[1:(N-500)], alpha=0.99)
+packege_test_his = BacktestVaR(portfolio_losses[501:N-1], VaR_his_all[1:(N-500)], alpha=0.99)
+test_var = packege_test_var$LRuc
+test_his = packege_test_his$LRuc
+cat ( "The Kupiec test results from packege implement:", "\nTest for variance-covariance method:", test_var, "\nTest for historical estimation method:", test_his)
+
+# Determine the non-rejection interval at confidence level 99%.
+epsilon = 0.01
+q = alpha
+df = 1
+
+quantile_3_1 = qchisq(1-epsilon, df = 1, ncp = 0, lower.tail = TRUE) # quantile_3_1 = 6.634897
+
+f_1 = function(x_1) 2 * log(((alpha_1-x_1)/(q*alpha_1))^(alpha_1-x_1) * (x_1/((1-q)*alpha_1))^x_1) - quantile_3_1
+
+# Plot to show the interval.
+x_1 = seq(1, 30, by=1)
+y_1 = 2 * log(((alpha_1-x_1)/(q*alpha_1))^(alpha_1-x_1) * (x_1/((1-q)*alpha_1))^x_1)
+plot(x_1, y_1, type = 'l')
+abline(h=quantile_3_1)
+
+solution_1 = uniroot(f_1, interval = c(1, 10))
+solution_2 = uniroot(f_1, interval = c(10, 20))
+
+x1_1 = solution_1$root
+x2_1 = solution_2$root
+
+cat ( "The non-rejection interval is from", floor(x1_1), "to", floor(x2_1+1))
+
+# Part (iv)
+# Q-Q plots
+par(mfrow=c(2,2))
+qqnorm(risk_factors[,1], main = "Normal Q-Q Plot of Risk Facter 1")
+qqline(risk_factors[,1], col = "red")
+qqnorm(risk_factors[,2], main = "Normal Q-Q Plot of Risk Facter 2")
+qqline(risk_factors[,2], col = "red")
+qqnorm(risk_factors[,3], main = "Normal Q-Q Plot of Risk Facter 3")
+qqline(risk_factors[,3], col = "red")
+qqnorm(risk_factors[,4], main = "Normal Q-Q Plot of Risk Facter 4")
+qqline(risk_factors[,4], col = "red")
+
+# Shapiro normality test
+norm_test_1 = shapiro.test(risk_factors[,1])
+norm_test_2 = shapiro.test(risk_factors[,2])
+norm_test_3 = shapiro.test(risk_factors[,3])
+norm_test_4 = shapiro.test(risk_factors[,4])
+
+print(norm_test_1)
+print(norm_test_2)
+print(norm_test_3)
+print(norm_test_4)
+
+
+# Part (V)
+# Kupiec’s PF Coverage Test for C.
+# Calculate the exceedance number with C.
+exceedances_var_C = sum(portfolio_losses[500:(N-1)] > as.vector(C_var_all[1:(N-500)]))
+print(exceedances_var_C)
+
+# Solve function to determine the non-rejection interval at confidence level 98%.
+epsilon = 0.02
+q = alpha
+df = 1
+
+quantile_4 = qchisq(1-epsilon, df = 1, ncp = 0, lower.tail = TRUE) # quantile_4 = 5.411894
+
+f_2 = function(x_1) 2 * log(((alpha_1-x_1)/(q*alpha_1))^(alpha_1-x_1) * (x_1/((1-q)*alpha_1))^x_1) - quantile_4
+
+# Plot to show the interval.
+x_1 = seq(1, 30, by=1)
+y_1 = 2 * log(((alpha_1-x_1)/(q*alpha_1))^(alpha_1-x_1) * (x_1/((1-q)*alpha_1))^x_1)
+plot(x_1, y_1, type = 'l')
+abline(h=quantile_4)
+
+solution_3 = uniroot(f_2, interval = c(0, 5))
+solution_4 = uniroot(f_2, interval = c(10, 20))
+
+x3 = solution_3$root
+x4 = solution_4$root
+
+cat ( "The non-rejection interval is from", floor(x3), "to", floor(x4+1))
+
+```
